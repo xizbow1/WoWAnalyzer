@@ -1,7 +1,7 @@
 import SPELLS from 'common/SPELLS';
 import TALENTS, { TALENTS_PRIEST } from 'common/TALENTS/priest';
 import Analyzer, { SELECTED_PLAYER } from 'parser/core/Analyzer';
-import Events, { HealEvent } from 'parser/core/Events';
+import Events, { CastEvent, HealEvent } from 'parser/core/Events';
 import { Options } from 'parser/core/Module';
 import TalentSpellText from 'parser/ui/TalentSpellText';
 import ItemHealingDone from 'parser/ui/ItemHealingDone';
@@ -18,6 +18,11 @@ import {
 import EOLAttrib from '../../core/EchoOfLightAttributor';
 import SpellLink from 'interface/SpellLink';
 import ItemPercentHealingDone from 'parser/ui/ItemPercentHealingDone';
+import { explanationAndDataSubsection } from 'interface/guide/components/ExplanationRow';
+import { GUIDE_CORE_EXPLANATION_PERCENT } from '../../../Guide';
+import { QualitativePerformance } from 'parser/ui/QualitativePerformance';
+import { RoundedPanel } from 'interface/guide/components/GuideDivs';
+import { BoxRowEntry, PerformanceBoxRow } from 'interface/guide/components/PerformanceBoxRow';
 
 // Example Log: /report/kVQd4LrBb9RW2h6K/9-Heroic+The+Primal+Council+-+Wipe+5+(5:04)/Delipriest/standard/statistics
 class ResonantWords extends Analyzer {
@@ -32,6 +37,10 @@ class ResonantWords extends Analyzer {
   healingDoneFromTalent = 0;
   overhealingDoneFromTalent = 0;
   healingMultiplierWhenActive = 0;
+  badConsumes = 0;
+  okConsumes = 0;
+  goodConsumes = 0;
+  overcaps = 0;
 
   talentRank = 0;
 
@@ -81,14 +90,94 @@ class ResonantWords extends Analyzer {
     }
   }
 
-  onHealCast() {
-    if (this.selectedCombatant.hasBuff(SPELLS.RESONANT_WORDS_TALENT_BUFF.id)) {
-      this.usedResonantWords += 1;
+  onHealCast(event: CastEvent) {
+    if (!this.selectedCombatant.hasBuff(SPELLS.RESONANT_WORDS_TALENT_BUFF.id)) {
+      return;
+    } else {
+      this.usedResonantWords += 1; // For statistics
+    }
+    switch (event.ability.guid) {
+      case SPELLS.FLASH_HEAL.id:
+        if (this.selectedCombatant.hasBuff(SPELLS.SURGE_OF_LIGHT_BUFF.id)) {
+          this.okConsumes += 1;
+        } else {
+          this.badConsumes += 1;
+        }
+        break;
+      case SPELLS.GREATER_HEAL.id:
+        if (this.selectedCombatant.hasBuff(SPELLS.LIGHTWEAVER_TALENT_BUFF.id)) {
+          this.goodConsumes += 1;
+        } else {
+          this.badConsumes += 1;
+        }
+        break;
+      case SPELLS.CIRCLE_OF_HEALING.id:
+        this.okConsumes += 1;
+        break;
+      default:
+        this.badConsumes += 1;
     }
   }
 
   onHolyWordCast() {
     this.totalResonantWords += 1;
+    if (this.selectedCombatant.hasBuff(SPELLS.RESONANT_WORDS_TALENT_BUFF.id)) {
+      // This isn't ideal, but the buff sometimes refreshes when applied for no reason so we can't listen for that
+      this.overcaps += 1;
+    }
+  }
+
+  get guideSubsection(): JSX.Element {
+    // if player isn't running resonant words, don't show guide section
+    if (!this.selectedCombatant.hasTalent(TALENTS.RESONANT_WORDS_TALENT)) {
+      return <></>;
+    }
+    const explanation = (
+      <p>
+        <b>
+          <SpellLink spell={TALENTS.RESONANT_WORDS_TALENT} />
+        </b>{' '}
+        is a strong buff that you should be playing around to buff your{' '}
+        <SpellLink spell={SPELLS.GREATER_HEAL} /> casts. You want to always consume this buff with a{' '}
+        <SpellLink spell={SPELLS.LIGHTWEAVER_TALENT_BUFF} />
+        -buffed <SpellLink spell={SPELLS.GREATER_HEAL} /> cast. If you consume it with a{' '}
+        <SpellLink spell={SPELLS.SURGE_OF_LIGHT_BUFF} />
+        -buffed <SpellLink spell={SPELLS.FLASH_HEAL} /> or a{' '}
+        <SpellLink spell={SPELLS.CIRCLE_OF_HEALING} /> that's ok as well.
+        <li>
+          <b>Above all else, you do not want to waste the buff by casting another Holy Word.</b>
+        </li>
+      </p>
+    );
+
+    const consumes = [
+      { type: QualitativePerformance.Good, count: this.goodConsumes },
+      { type: QualitativePerformance.Ok, count: this.okConsumes },
+      { type: QualitativePerformance.Fail, count: this.badConsumes },
+    ];
+
+    console.log(consumes);
+    const entries: BoxRowEntry[] = [];
+    consumes.forEach((info) => {
+      const value = info.type;
+      const a = <>fatrtr</>;
+      [...Array(info.count)].forEach((_, i) => {
+        entries.push({ value, a });
+      });
+    });
+
+    const data = (
+      <div>
+        <RoundedPanel>
+          <strong>
+            <SpellLink spell={TALENTS_PRIEST.RESONANT_WORDS_TALENT} /> consumptions
+          </strong>
+          <PerformanceBoxRow values={entries} />
+        </RoundedPanel>
+      </div>
+    );
+
+    return explanationAndDataSubsection(explanation, data, GUIDE_CORE_EXPLANATION_PERCENT);
   }
 
   statistic() {
