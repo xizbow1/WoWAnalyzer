@@ -19,8 +19,26 @@ import EOLAttrib from '../../core/EchoOfLightAttributor';
 import SpellLink from 'interface/SpellLink';
 import ItemPercentHealingDone from 'parser/ui/ItemPercentHealingDone';
 import { explanationAndDataSubsection } from 'interface/guide/components/ExplanationRow';
-import GradiatedPerformanceBar from 'interface/guide/components/GradiatedPerformanceBar';
 import { GUIDE_CORE_EXPLANATION_PERCENT } from '../../../Guide';
+import { QualitativePerformance } from 'parser/ui/QualitativePerformance';
+import { BoxRowEntry, PerformanceBoxRow } from 'interface/guide/components/PerformanceBoxRow';
+import { RoundedPanel } from 'interface/guide/components/GuideDivs';
+
+enum RW_CONSUME {
+  HEAL = QualitativePerformance.Fail,
+  HEAL_LW = QualitativePerformance.Perfect,
+  FLASH_HEAL = QualitativePerformance.Ok,
+  FLASH_HEAL_SURGE = QualitativePerformance.Good,
+  PRAYER_OF_HEALING = QualitativePerformance.Fail,
+  CIRCLE_OF_HEALING = QualitativePerformance.Fail,
+  NONE = QualitativePerformance.Fail,
+}
+
+interface ConsumeInfo {
+  spell: number;
+  timestamp: number;
+  source: RW_CONSUME;
+}
 
 // Example Log: /report/kVQd4LrBb9RW2h6K/9-Heroic+The+Primal+Council+-+Wipe+5+(5:04)/Delipriest/standard/statistics
 class ResonantWords extends Analyzer {
@@ -35,10 +53,9 @@ class ResonantWords extends Analyzer {
   healingDoneFromTalent = 0;
   overhealingDoneFromTalent = 0;
   healingMultiplierWhenActive = 0;
-  badConsumes = 0;
-  okConsumes = 0;
-  goodConsumes = 0;
   overcaps = 0;
+
+  consumes: ConsumeInfo[] = [];
 
   talentRank = 0;
 
@@ -87,34 +104,38 @@ class ResonantWords extends Analyzer {
       );
     }
   }
-
   onHealCast(event: CastEvent) {
     if (!this.selectedCombatant.hasBuff(SPELLS.RESONANT_WORDS_TALENT_BUFF.id)) {
       return;
     } else {
       this.usedResonantWords += 1; // For statistics
     }
+    const info: ConsumeInfo = {
+      timestamp: event.timestamp,
+      spell: event.ability.guid,
+      source: RW_CONSUME.NONE,
+    };
+
     switch (event.ability.guid) {
       case SPELLS.FLASH_HEAL.id:
         if (this.selectedCombatant.hasBuff(SPELLS.SURGE_OF_LIGHT_BUFF.id)) {
-          this.okConsumes += 1;
+          info.source = RW_CONSUME.FLASH_HEAL_SURGE;
         } else {
-          this.badConsumes += 1;
+          info.source = RW_CONSUME.FLASH_HEAL;
         }
         break;
       case SPELLS.GREATER_HEAL.id:
         if (this.selectedCombatant.hasBuff(SPELLS.LIGHTWEAVER_TALENT_BUFF.id)) {
-          this.goodConsumes += 1;
+          info.source = RW_CONSUME.HEAL_LW;
         } else {
-          this.badConsumes += 1;
+          info.source = RW_CONSUME.HEAL;
         }
         break;
       case SPELLS.CIRCLE_OF_HEALING.id:
-        this.okConsumes += 1;
+        info.source = RW_CONSUME.CIRCLE_OF_HEALING;
         break;
-      default:
-        this.badConsumes += 1;
     }
+    this.consumes.push(info);
   }
 
   onHolyWordCast() {
@@ -148,22 +169,26 @@ class ResonantWords extends Analyzer {
       </p>
     );
 
-    const goodConsumes = {
-      count: this.goodConsumes,
-      label: 'Good Usages of Resonant Words',
-    };
+    const entries: BoxRowEntry[] = [];
+    this.consumes.forEach((info) => {
+      const value = info.source;
+      console.log(value);
+      const spellstring = (
+        <>
+          ability: <SpellLink spell={info.spell} />
+        </>
+      );
+      const tooltip = (
+        <>
+          Buff removed @ {this.owner.formatTimestamp(info.timestamp)}
+          <br />
+          {spellstring}
+        </>
+      );
+      entries.push({ value, tooltip });
+    });
 
-    const okConsumes = {
-      count: this.okConsumes,
-      label: 'OK Usages of Resonant Words',
-    };
-
-    const badConsumes = {
-      count: this.badConsumes,
-      label: 'Good Usages of Resonant Words',
-    };
-
-    const data = (
+    /*const data = (
       <div>
         <strong>
           <SpellLink spell={SPELLS.GREATER_HEAL} /> cast breakdown
@@ -186,6 +211,16 @@ class ResonantWords extends Analyzer {
           - You wasted {this.wastedResonantWords} of {this.totalResonantWords} uses of{' '}
           <SpellLink spell={TALENTS.RESONANT_WORDS_TALENT} />
         </small>
+      </div>
+    );*/
+    const data = (
+      <div>
+        <RoundedPanel>
+          <strong>
+            <SpellLink spell={TALENTS_PRIEST.RESONANT_WORDS_TALENT} /> consumptions
+          </strong>
+          <PerformanceBoxRow values={entries} />
+        </RoundedPanel>
       </div>
     );
 
